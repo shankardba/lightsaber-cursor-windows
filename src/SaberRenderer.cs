@@ -204,6 +204,81 @@ public static class SaberRenderer
         }
     }
 
+    /// Wide, flat metal blade with a symmetric point so the hotspot stays exactly at the tip.
+    static SKPath SwordPath(float len, float w)
+    {
+        float hw = w * 0.95f;
+        float taper = MathF.Min(len, hw * 3.2f);
+        var p = new SKPath();
+        p.MoveTo(-hw, -0.5f);
+        p.LineTo(-hw, len - taper);
+        p.LineTo(0, len);
+        p.LineTo(hw, len - taper);
+        p.LineTo(hw, -0.5f);
+        p.Close();
+        return p;
+    }
+
+    /// Polished metal blade: sheen across the width, etched fishbone lines, and (when animated) a gleam that travels up it.
+    static void DrawSword(SaberConfig c, SKCanvas canvas, float len, float w, double t)
+    {
+        float hw = w * 0.95f;
+        float taper = MathF.Min(len, hw * 3.2f);
+        using var body = SwordPath(len, w);
+        var baseColor = c.Blade;
+        var light = baseColor.Mix(RGB.White, 0.5);
+        var dark = baseColor.Mix(RGB.Black, 0.45);
+
+        DrawShadowed(canvas, body, baseColor.Sk(), baseColor.Mix(RGB.White, 0.3).Sk(Math.Min(1, 0.4 * c.GlowIntensity)),
+            3 + 5 * (float)c.GlowRadius);
+
+        canvas.Save();
+        canvas.ClipPath(body, antialias: true);
+        using (var sheen = new SKPaint { IsAntialias = true })
+        {
+            sheen.Shader = SKShader.CreateLinearGradient(new SKPoint(-hw, 0), new SKPoint(hw, 0),
+                new[] { dark.Sk(), light.Sk(), baseColor.Sk(), light.Mix(baseColor, 0.5).Sk(), dark.Sk() },
+                new[] { 0f, 0.22f, 0.5f, 0.78f, 1f }, SKShaderTileMode.Clamp);
+            canvas.DrawRect(SKRect.Create(-hw - 1, -1, 2 * hw + 2, len + 2), sheen);
+        }
+
+        float etchTop = len - taper * 0.8f;
+        if (etchTop > 2)
+        {
+            using var etch = Stroke(dark.Mix(RGB.Black, 0.2).Sk(0.75), 0.22f);
+            foreach (float side in new[] { -1f, 1f })
+            {
+                using var zig = new SKPath();
+                float y = 1;
+                bool outward = true;
+                zig.MoveTo(side * hw * 0.42f, y);
+                while (y < etchTop)
+                {
+                    y = MathF.Min(etchTop, y + 0.7f);
+                    zig.LineTo(side * hw * (outward ? 0.64f : 0.2f), y);
+                    outward = !outward;
+                }
+                canvas.DrawPath(zig, etch);
+            }
+            using var ridge = Stroke(light.Sk(0.6), 0.18f);
+            canvas.DrawLine(0, 0.5f, 0, len - taper * 0.6f, ridge);
+        }
+
+        if (c.Animated)
+        {
+            float travel = len + 8;
+            float gy = (float)(t * 0.55 % 1) * travel - 4;
+            using var gleam = new SKPaint { IsAntialias = true };
+            gleam.Shader = SKShader.CreateLinearGradient(new SKPoint(0, gy - 2.5f), new SKPoint(0, gy + 2.5f),
+                new[] { RGB.White.Sk(0), RGB.White.Sk(0.55), RGB.White.Sk(0) }, new[] { 0f, 0.5f, 1f }, SKShaderTileMode.Clamp);
+            canvas.DrawRect(SKRect.Create(-hw - 1, gy - 2.5f, 2 * hw + 2, 5), gleam);
+        }
+        canvas.Restore();
+
+        using var outline = Stroke(dark.Mix(RGB.Black, 0.35).Sk(0.95), 0.35f);
+        canvas.DrawPath(body, outline);
+    }
+
     static void GlowShape(SKCanvas canvas, SKPath body, SKPath halo, SKPath? core, SaberConfig c, float I, float R)
     {
         bool dark = c.BladeStyle == BladeStyle.Darksaber;
@@ -243,6 +318,12 @@ public static class SaberRenderer
         float I = (float)c.GlowIntensity * flick;
         float R = 4 + 8 * (float)c.GlowRadius;
         int seed = (c.Animated || unstable) ? (int)(t * 24) : 0;
+
+        if (c.BladeStyle == BladeStyle.Sword)
+        {
+            DrawSword(c, canvas, len, w, t);
+            return;
+        }
 
         using var body = dark ? DarksaberPath(len, w) : unstable ? UnstablePath(len, w, seed) : Capsule(-0.5f, len, w);
         using var core = Capsule(0, len - w * 0.2f, w * (0.4f + 0.22f * (float)c.CoreWhiteness));
@@ -619,6 +700,57 @@ public static class SaberRenderer
                 HRidges(canvas, -11.8f, -14.6f, 5.6f, 3, Rubber, 0.5f);
                 foreach (var y in new[] { -15.6f, -16.5f, -17.4f }) FillRRect(canvas, -2.8f, y, 5.6f, 0.32f, 0.1f, a, 0.95);
                 Seg(canvas, -19.5f, 2.6f, 5.3f, f, 0.9f);
+                break;
+            }
+
+            case HiltStyle.Ancient:
+            {
+                // Gold crossguard with upturned curls, tapered brown grip with gold scrollwork, flared crescent pommel.
+                var grip = new RGB(0.33, 0.19, 0.09);
+                var gold = f.Base().Mix(f.Light(), 0.3);
+                foreach (float sx in new[] { -1f, 1f })
+                {
+                    using var curl = new SKPath();
+                    curl.MoveTo(sx * 3.0f, -0.4f);
+                    curl.CubicTo(sx * 4.6f, -0.6f, sx * 4.9f, 0.6f, sx * 4.5f, 1.6f);
+                    curl.CubicTo(sx * 4.2f, 2.4f, sx * 3.8f, 2.5f, sx * 3.7f, 2.3f);
+                    using (var o = Stroke(f.Dark().Mix(RGB.Black, 0.3).Sk(), 0.95f, SKStrokeCap.Round)) canvas.DrawPath(curl, o);
+                    using (var g = Stroke(gold.Sk(), 0.6f, SKStrokeCap.Round)) canvas.DrawPath(curl, g);
+                    Dot(canvas, sx * 3.7f, 2.3f, 0.45f, gold);
+                }
+                using (var bar = RRect(-3.4f, 0.3f, 6.8f, 1.6f, 0.6f)) Metal(canvas, bar, f, 3.4f);
+                using var gp = Poly((-2.1f, -1.3f), (2.1f, -1.3f), (1.75f, -12.6f), (-1.75f, -12.6f));
+                using (var gpaint = new SKPaint { IsAntialias = true })
+                {
+                    gpaint.Shader = SKShader.CreateLinearGradient(new SKPoint(-2.1f, 0), new SKPoint(2.1f, 0),
+                        new[] { grip.Mix(RGB.Black, 0.4).Sk(), grip.Mix(RGB.White, 0.25).Sk(), grip.Sk(), grip.Mix(RGB.Black, 0.3).Sk() },
+                        new[] { 0f, 0.3f, 0.6f, 1f }, SKShaderTileMode.Clamp);
+                    canvas.DrawPath(gp, gpaint);
+                }
+                using (var scroll = Stroke(a.Sk(0.95), 0.35f, SKStrokeCap.Round))
+                {
+                    canvas.DrawOval(0, -3.0f, 0.8f, 0.8f, scroll);
+                    canvas.DrawOval(0, -4.5f, 0.8f, 0.8f, scroll);
+                    foreach (var top in new[] { -6.3f, -9.3f })
+                    {
+                        using var sPath = new SKPath();
+                        sPath.MoveTo(-1.1f, top);
+                        sPath.CubicTo(1.6f, top - 0.2f, -1.6f, top - 2.2f, 1.1f, top - 2.4f);
+                        canvas.DrawPath(sPath, scroll);
+                    }
+                }
+                using (var go = Stroke(grip.Mix(RGB.Black, 0.6).Sk(0.9), 0.3f)) canvas.DrawPath(gp, go);
+                using (var collar = RRect(-2.0f, -12.4f, 4.0f, 1.0f, 0.4f)) Metal(canvas, collar, f, 2);
+                using var pommel = new SKPath();
+                pommel.MoveTo(-1.5f, -13.2f);
+                pommel.LineTo(-1.8f, -14.2f);
+                pommel.CubicTo(-2.6f, -14.6f, -3.4f, -15.4f, -3.4f, -16.4f);
+                pommel.CubicTo(-2.2f, -16.6f, -1.0f, -15.6f, 0, -15.6f);
+                pommel.CubicTo(1.0f, -15.6f, 2.2f, -16.6f, 3.4f, -16.4f);
+                pommel.CubicTo(3.4f, -15.4f, 2.6f, -14.6f, 1.8f, -14.2f);
+                pommel.LineTo(1.5f, -13.2f);
+                pommel.Close();
+                Metal(canvas, pommel, f, 3.4f);
                 break;
             }
 
