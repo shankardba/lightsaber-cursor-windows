@@ -30,8 +30,8 @@ internal sealed class CustomizerForm : Form
     readonly ComboBox factionBox = Combo(Enum.GetNames<Faction>());
     readonly ComboBox hiltBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 26, Width = 260 };
     readonly ComboBox finishBox = Combo(Enum.GetNames<HiltFinish>());
-    readonly Button accentButton = new() { Text = "Accent color…", AutoSize = true };
-    readonly Button bladeColorButton = new() { Text = "Custom blade color…", AutoSize = true };
+    readonly Button accentButton = new() { Text = "Accent color…", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+    readonly Button bladeColorButton = new() { Text = "Custom blade color…", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
     readonly ComboBox styleBox = Combo(Enum.GetNames<BladeStyle>());
     readonly CheckBox animatedBox = new() { Text = "Animated shimmer (hum flicker)", AutoSize = true };
     readonly Slider coreSlider = new("Core brightness", 0, 1);
@@ -40,8 +40,8 @@ internal sealed class CustomizerForm : Form
     readonly Slider glowSizeSlider = new("Glow size", 0.3, 2);
     readonly Slider glowStrengthSlider = new("Glow strength", 0.2, 1.6);
     readonly TextBox saveName = new() { Width = 170, PlaceholderText = "Name for My Sabers" };
-    readonly Button updateButton = new() { Text = "Update", AutoSize = true };
-    readonly Button deleteButton = new() { Text = "Delete", AutoSize = true };
+    readonly Button updateButton = new() { Text = "Update", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
+    readonly Button deleteButton = new() { Text = "Delete", AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
 
     // Behavior tab
     readonly Slider sizeSlider = new("Cursor size", 0.45, 1.6);
@@ -64,6 +64,15 @@ internal sealed class CustomizerForm : Form
     readonly ComboBox runningApps = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
     readonly ComboBox ruleSaberBox = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
 
+    readonly float dpiScale = 1;
+    int Scaled(int v) => (int)Math.Round(v * dpiScale);
+
+    static Native.POINT CursorPoint()
+    {
+        Native.GetCursorPos(out var p);
+        return p;
+    }
+
     static ComboBox Combo(params string[] items)
     {
         var c = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 200 };
@@ -78,11 +87,15 @@ internal sealed class CustomizerForm : Form
         Text = "Lightsaber Cursor";
         Icon = null;
         StartPosition = FormStartPosition.CenterScreen;
-        AutoScaleMode = AutoScaleMode.Dpi;
+        // The layout below is written in 96-DPI units and scaled once, explicitly, at the end of the constructor.
+        AutoScaleMode = AutoScaleMode.None;
+        dpiScale = (float)Native.DpiScaleAt(CursorPoint());
+        thumbs.ImageSize = new Size(Scaled(32), Scaled(32));
+        hiltBox.ItemHeight = Scaled(26);
         ClientSize = new Size(1180, 760);
         MinimumSize = new Size(1000, 640);
 
-        var header = new FlowLayoutPanel { Dock = DockStyle.Top, Height = 40, Padding = new Padding(12, 10, 12, 0) };
+        var header = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12, 8, 12, 4), WrapContents = false };
         header.Controls.Add(enabledBox);
         header.Controls.Add(showingLabel);
         header.Controls.Add(new Label { Text = $"Toggle: {TrayApp.HotKeyText}", AutoSize = true, ForeColor = SystemColors.GrayText, Padding = new Padding(24, 3, 0, 0) });
@@ -105,6 +118,11 @@ internal sealed class CustomizerForm : Form
         };
 
         var sw = Stopwatch.StartNew();
+        Scale(new SizeF(dpiScale, dpiScale));
+        var work = Screen.FromPoint(Cursor.Position).WorkingArea;
+        Size = new Size(Math.Min(Width, (int)(work.Width * 0.96)), Math.Min(Height, (int)(work.Height * 0.94)));
+        MinimumSize = new Size(Math.Min(MinimumSize.Width, Width), Math.Min(MinimumSize.Height, Height));
+
         FillPresetList();
         SyncFromPrefs();
         Log.Write($"customizer built in {sw.ElapsedMilliseconds}ms");
@@ -146,9 +164,9 @@ internal sealed class CustomizerForm : Form
         var grid = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3 };
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 270));
         grid.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 360));
+        grid.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 390));
 
-        presetList.Columns.Add("Saber", 230);
+        presetList.Columns.Add("Saber", Scaled(230));
         presetList.SmallImageList = thumbs;
         presetList.ItemActivate += (_, _) => PickSelectedPreset();
         presetList.ItemSelectionChanged += (_, e) => { if (e.IsSelected && !syncing) PickSelectedPreset(); };
@@ -165,7 +183,8 @@ internal sealed class CustomizerForm : Form
         presetList.ContextMenuStrip = listMenu;
         grid.Controls.Add(presetList, 0, 0);
 
-        var center = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, Padding = new Padding(8, 0, 8, 0) };
+        var center = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Padding = new Padding(8, 0, 8, 0) };
+        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         center.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         center.RowStyles.Add(new RowStyle(SizeType.AutoSize));
@@ -179,15 +198,17 @@ internal sealed class CustomizerForm : Form
         center.Controls.Add(preview, 0, 1);
         center.Controls.Add(new Label
         {
-            AutoSize = true,
+            AutoSize = false,
+            Dock = DockStyle.Fill,
+            Height = 48,
             ForeColor = SystemColors.GrayText,
-            MaximumSize = new Size(520, 0),
             Text = "The saber replaces the arrow, text and link pointers. Resize, busy and other special pointers stay standard Windows pointers.",
         }, 0, 2);
         grid.Controls.Add(center, 1, 0);
 
         var editor = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoScroll = true };
-        editor.Controls.Add(Group("Randomizer", Row(randHilt, randColor, Labeled("Side", randSide, 90)), ActionButton("Randomize", () => settings.Randomize())));
+        randSide.Width = 90;
+        editor.Controls.Add(Group("Randomizer", Row(randHilt, randColor, Labeled("Side", randSide, 36)), ActionButton("Randomize", () => settings.Randomize())));
         editor.Controls.Add(Group("Identity", Labeled("Name", nameBox), Labeled("Side", factionBox)));
 
         hiltBox.Items.AddRange(Enum.GetNames<HiltStyle>());
@@ -264,7 +285,7 @@ internal sealed class CustomizerForm : Form
         var mine = presetList.Groups.Add("mine", "My Sabers");
         foreach (var s in settings.AllSabers)
         {
-            thumbs.Images.Add(s.Id, Thumbnail(s, 32));
+            thumbs.Images.Add(s.Id, Thumbnail(s, thumbs.ImageSize.Width));
             bool custom = s.Id.StartsWith("custom.");
             presetList.Items.Add(new ListViewItem(s.Name, s.Id) { Tag = s, Group = custom ? mine : groups[s.Faction] });
         }
@@ -295,13 +316,14 @@ internal sealed class CustomizerForm : Form
         string key = $"{hilt}|{c.Finish}|{c.Accent}";
         if (!hiltIcons.TryGetValue(key, out var icon))
         {
-            using var img = SaberRenderer.RenderHiltIcon(c, 20);
+            using var img = SaberRenderer.RenderHiltIcon(c, Math.Max(12, e.Bounds.Height - 8));
             icon = img.ToBitmap();
             hiltIcons[key] = icon;
         }
         e.Graphics.DrawImage(icon, e.Bounds.Left + 4, e.Bounds.Top + (e.Bounds.Height - icon.Height) / 2);
-        using var brush = new SolidBrush(e.ForeColor);
-        e.Graphics.DrawString(hilt.ToString(), e.Font ?? Font, brush, e.Bounds.Left + 90, e.Bounds.Top + 5);
+        var textBounds = new Rectangle(e.Bounds.Left + Scaled(92), e.Bounds.Top, e.Bounds.Width - Scaled(92), e.Bounds.Height);
+        TextRenderer.DrawText(e.Graphics, hilt.ToString(), e.Font ?? Font, textBounds, e.ForeColor,
+            TextFormatFlags.VerticalCenter | TextFormatFlags.Left | TextFormatFlags.EndEllipsis);
     }
 
     void PaintPreview(object? sender, SKPaintSurfaceEventArgs e)
@@ -390,8 +412,8 @@ internal sealed class CustomizerForm : Form
                 new Label { Text = "until hour", AutoSize = true, Padding = new Padding(0, 6, 0, 0) }, nightEnd),
             Labeled("Night saber", nightSaberBox, 90), nightStatus));
 
-        rulesList.Columns.Add("App", 220);
-        rulesList.Columns.Add("Saber", 380);
+        rulesList.Columns.Add("App", Scaled(220));
+        rulesList.Columns.Add("Saber", Scaled(380));
         var addButton = ActionButton("Add", AddRule);
         var changeButton = ActionButton("Set saber for selected", () =>
         {
@@ -539,26 +561,26 @@ internal sealed class CustomizerForm : Form
 
     static GroupBox Group(string title, params Control[] children)
     {
-        var inner = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, Dock = DockStyle.Fill };
+        var inner = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Dock = DockStyle.Fill };
         inner.Controls.AddRange(children);
-        var box = new GroupBox { Text = title, AutoSize = true, Padding = new Padding(8), Margin = new Padding(0, 0, 0, 10), MinimumSize = new Size(330, 0) };
+        var box = new GroupBox { Text = title, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8), Margin = new Padding(0, 0, 0, 10), MinimumSize = new Size(330, 0) };
         box.Controls.Add(inner);
         return box;
     }
 
     static FlowLayoutPanel Row(params Control[] children)
     {
-        var row = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0) };
+        var row = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0) };
         row.Controls.AddRange(children);
         return row;
     }
 
     static FlowLayoutPanel Labeled(string label, Control control, int labelWidth = 60) =>
-        Row(new Label { Text = label, Width = labelWidth, Padding = new Padding(0, 6, 0, 0) }, control);
+        Row(new Label { Text = label, AutoSize = true, MinimumSize = new Size(labelWidth, 0), Padding = new Padding(0, 6, 0, 0) }, control);
 
     static Button ActionButton(string text, Action onClick)
     {
-        var b = new Button { Text = text, AutoSize = true };
+        var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink };
         b.Click += (_, _) => onClick();
         return b;
     }
@@ -582,6 +604,7 @@ internal sealed class CustomizerForm : Form
             this.format = format ?? (v => $"{Math.Round(v * 100)}%");
             FlowDirection = FlowDirection.TopDown;
             AutoSize = true;
+            AutoSizeMode = AutoSizeMode.GrowAndShrink;
             WrapContents = false;
             Margin = new Padding(0, 2, 0, 2);
             Controls.Add(label);
