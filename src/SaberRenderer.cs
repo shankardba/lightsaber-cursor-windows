@@ -279,6 +279,52 @@ public static class SaberRenderer
         canvas.DrawPath(body, outline);
     }
 
+    /// Twin plasma prongs (energy-sword style): they rise apart from the hilt and meet in one point at the tip.
+    static float PlasmaOuter(float u, float w) => w * 1.05f * MathF.Pow(1 - u, 0.75f) * (1 + 0.3f * u);
+    static float PlasmaInner(float u, float w) => w * 0.32f * MathF.Pow(1 - u, 1.6f);
+
+    static SKPath PlasmaPath(float len, float w)
+    {
+        var p = new SKPath();
+        const int n = 28;
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            p.MoveTo(sx * PlasmaOuter(0, w), -0.5f);
+            for (int i = 1; i <= n; i++)
+            {
+                float u = (float)i / n;
+                p.LineTo(sx * PlasmaOuter(u, w), -0.5f + u * (len + 0.5f));
+            }
+            for (int i = n - 1; i >= 0; i--)
+            {
+                float u = (float)i / n;
+                p.LineTo(sx * PlasmaInner(u, w), -0.5f + u * (len + 0.5f));
+            }
+            p.Close();
+        }
+        return p;
+    }
+
+    static void DrawPlasma(SaberConfig c, SKCanvas canvas, float len, float w, float I, float R)
+    {
+        using var body = PlasmaPath(len, w);
+        GlowShape(canvas, body, body, null, c, I, R);
+        var hot = c.Blade.Mix(RGB.White, Math.Min(1, 0.55 + 0.45 * c.CoreWhiteness));
+        using var coreLine = Stroke(hot.Sk(), 0.45f, SKStrokeCap.Round, SKStrokeJoin.Round);
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            using var core = new SKPath();
+            core.MoveTo(sx * (PlasmaOuter(0, w) + PlasmaInner(0, w)) / 2, 0);
+            const int n = 24;
+            for (int i = 1; i <= n; i++)
+            {
+                float u = (float)i / n * 0.96f;
+                core.LineTo(sx * (PlasmaOuter(u, w) + PlasmaInner(u, w)) / 2, u * len);
+            }
+            canvas.DrawPath(core, coreLine);
+        }
+    }
+
     static void GlowShape(SKCanvas canvas, SKPath body, SKPath halo, SKPath? core, SaberConfig c, float I, float R)
     {
         bool dark = c.BladeStyle == BladeStyle.Darksaber;
@@ -322,6 +368,11 @@ public static class SaberRenderer
         if (c.BladeStyle == BladeStyle.Sword)
         {
             DrawSword(c, canvas, len, w, t);
+            return;
+        }
+        if (c.BladeStyle == BladeStyle.Plasma)
+        {
+            DrawPlasma(c, canvas, len, w, I, R);
             return;
         }
 
@@ -751,6 +802,30 @@ public static class SaberRenderer
                 pommel.LineTo(1.5f, -13.2f);
                 pommel.Close();
                 Metal(canvas, pommel, f, 3.4f);
+                break;
+            }
+
+            case HiltStyle.Plasma:
+            {
+                // Short dark handle with curved guard brackets and glowing slots lit in the blade color.
+                var lit = c.BladeStyle == BladeStyle.Darksaber ? new RGB(0.9, 0.94, 1) : c.Blade;
+                foreach (float sx in new[] { -1f, 1f })
+                {
+                    using var arc = new SKPath();
+                    arc.MoveTo(sx * 2.2f, 0.6f);
+                    arc.CubicTo(sx * 5.4f, 0.2f, sx * 5.2f, -6.2f, sx * 3.0f, -7.6f);
+                    using (var o = Stroke(f.Dark().Mix(RGB.Black, 0.4).Sk(), 1.3f, SKStrokeCap.Round)) canvas.DrawPath(arc, o);
+                    using (var m = Stroke(f.Base().Mix(f.Light(), 0.2).Sk(), 0.9f, SKStrokeCap.Round)) canvas.DrawPath(arc, m);
+                    using (var l = Stroke(lit.Mix(RGB.White, 0.3).Sk(0.95), 0.28f, SKStrokeCap.Round)) canvas.DrawPath(arc, l);
+                }
+                using (var housing = Poly((-2.6f, 1.0f), (2.6f, 1.0f), (2.2f, -2.6f), (-2.2f, -2.6f))) Metal(canvas, housing, f, 2.6f);
+                FillRRect(canvas, -1.6f, 0.4f, 3.2f, 0.5f, 0.25f, lit);
+                FillRRect(canvas, -1.2f, -0.9f, 2.4f, 0.4f, 0.2f, lit, 0.8);
+                using var grip = Poly((-1.9f, -2.6f), (1.9f, -2.6f), (1.6f, -12.4f), (-1.6f, -12.4f));
+                Metal(canvas, grip, HiltFinish.Black, 1.9f);
+                DiagWraps(canvas, -3.0f, -12.0f, 3.8f, 7, f.Dark().Mix(RGB.White, 0.15), grip);
+                Seg(canvas, -12.4f, 2.4f, 4.0f, f, 1.2f);
+                Dot(canvas, 0, -13.6f, 0.55f, lit);
                 break;
             }
 

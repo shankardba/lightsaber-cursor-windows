@@ -18,11 +18,11 @@ public readonly record struct RGB(double R, double G, double B)
 
 public enum Faction { Jedi, Sith, Grey }
 
-public enum HiltStyle { Classic, Ribbed, Slim, Curved, Crossguard, Shoto, Jagged, Angular, Ornate, Banded, Worn, Inquisitor, Staff, Clawed, Darksaber, Ancient }
+public enum HiltStyle { Classic, Ribbed, Slim, Curved, Crossguard, Shoto, Jagged, Angular, Ornate, Banded, Worn, Inquisitor, Staff, Clawed, Darksaber, Ancient, Plasma }
 
 public enum HiltFinish { Silver, Black, Gunmetal, Brass, Bronze, White }
 
-public enum BladeStyle { Standard, Unstable, Darksaber, Sword }
+public enum BladeStyle { Standard, Unstable, Darksaber, Sword, Plasma }
 
 public enum RandomSide { Any, Jedi, Sith }
 
@@ -52,6 +52,7 @@ public static class ModelExtensions
         HiltStyle.Staff => 33.4f,
         HiltStyle.Clawed => 25f,
         HiltStyle.Ancient => 17.6f,
+        HiltStyle.Plasma => 15.4f,
         _ => 22.2f,
     };
 
@@ -201,6 +202,7 @@ public static class Presets
         P("Mara Jade", Faction.Grey, HiltStyle.Slim, HiltFinish.Silver, 0xB02070, 0xFF2E9A),
         P("Revan (Jedi)", Faction.Grey, HiltStyle.Clawed, HiltFinish.Gunmetal, 0x6A4EB0, 0xA24DFF, animated: true),
         P("Agamemnon (Golden Sword)", Faction.Grey, HiltStyle.Ancient, HiltFinish.Brass, 0xF0CF6A, 0xD9B04C, BladeStyle.Sword, true, glow: 0.45),
+        P("Plasma Sword", Faction.Grey, HiltStyle.Plasma, HiltFinish.Gunmetal, 0x6FD3FF, 0x3AA8FF, BladeStyle.Plasma, true, glow: 1.2),
         P("Starkiller (Redeemed)", Faction.Grey, HiltStyle.Worn, HiltFinish.Gunmetal, 0x2F7BFF, 0x3D8BFF, animated: true),
     };
 
@@ -239,6 +241,10 @@ public static class Randomizer
                 c.BladeStyle = BladeStyle.Sword;
                 c.Blade = Pick(BladeColors.Metals);
             }
+            else if (Rng.NextDouble() < 0.08)
+            {
+                c.BladeStyle = BladeStyle.Plasma;
+            }
             c.CoreWhiteness = Between(0.55, 0.9);
             c.GlowRadius = Between(0.75, 1.3);
             c.GlowIntensity = Between(0.85, 1.2);
@@ -246,8 +252,8 @@ public static class Randomizer
         }
         if (hilt)
         {
-            HiltStyle[] sith = { HiltStyle.Ribbed, HiltStyle.Jagged, HiltStyle.Curved, HiltStyle.Crossguard, HiltStyle.Angular, HiltStyle.Worn, HiltStyle.Ornate, HiltStyle.Inquisitor, HiltStyle.Staff, HiltStyle.Clawed, HiltStyle.Darksaber, HiltStyle.Ancient };
-            HiltStyle[] jedi = { HiltStyle.Classic, HiltStyle.Slim, HiltStyle.Shoto, HiltStyle.Ornate, HiltStyle.Banded, HiltStyle.Worn, HiltStyle.Angular, HiltStyle.Curved, HiltStyle.Clawed, HiltStyle.Darksaber, HiltStyle.Ancient };
+            HiltStyle[] sith = { HiltStyle.Ribbed, HiltStyle.Jagged, HiltStyle.Curved, HiltStyle.Crossguard, HiltStyle.Angular, HiltStyle.Worn, HiltStyle.Ornate, HiltStyle.Inquisitor, HiltStyle.Staff, HiltStyle.Clawed, HiltStyle.Darksaber, HiltStyle.Ancient, HiltStyle.Plasma };
+            HiltStyle[] jedi = { HiltStyle.Classic, HiltStyle.Slim, HiltStyle.Shoto, HiltStyle.Ornate, HiltStyle.Banded, HiltStyle.Worn, HiltStyle.Angular, HiltStyle.Curved, HiltStyle.Clawed, HiltStyle.Darksaber, HiltStyle.Ancient, HiltStyle.Plasma };
             c.Hilt = Pick(faction == Faction.Sith ? sith : jedi);
             HiltFinish[] finishes = faction == Faction.Sith
                 ? new[] { HiltFinish.Black, HiltFinish.Black, HiltFinish.Gunmetal, HiltFinish.Silver, HiltFinish.Brass }

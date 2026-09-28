@@ -4,8 +4,8 @@ The Windows version of Lightsaber Cursor. It's a system-tray app that turns the 
 
 - The blade points up-left like the normal arrow, and the click point is the blade tip.
 - The blade retracts after N idle seconds and re-ignites when you move. Clicking throws a spark, and fast swings leave a motion trail.
-- The customizer covers 16 hilts, 6 finishes, accent and blade colors, blade style (standard / unstable / Darksaber / Metal Sword), shimmer, core, length, thickness and glow.
-- 44 character presets (Jedi, Sith, Grey), and you can save your own to "My Sabers".
+- The customizer covers 17 hilts, 6 finishes, accent and blade colors, blade style (standard / unstable / Darksaber / Metal Sword / Plasma Sword), shimmer, core, length, thickness and glow.
+- 45 character presets (Jedi, Sith, Grey), and you can save your own to "My Sabers".
 - The randomizer can change the hilt, the color and the side. It can also pick a new random saber every time the blade re-ignites.
 - Auto-switch: an after-dark saber (following Windows dark mode or set hours) and per-app sabers.
 - Only the arrow, text and link-hand pointers become the saber. Resize arrows, the busy spinner and apps' own cursors stay normal Windows pointers.
