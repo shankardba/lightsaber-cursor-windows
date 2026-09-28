@@ -52,7 +52,7 @@ public static class ModelExtensions
         HiltStyle.Staff => 33.4f,
         HiltStyle.Clawed => 25f,
         HiltStyle.Ancient => 17.6f,
-        HiltStyle.Plasma => 15.4f,
+        HiltStyle.Plasma => 10.5f,
         _ => 22.2f,
     };
 

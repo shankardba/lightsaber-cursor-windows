@@ -41,7 +41,9 @@ public static class SaberRenderer
     /// Size and hotspot in pixels for a given pixels-per-unit scale.
     public static (SKSizeI Size, SKPointI Hotspot) Layout(SaberConfig c, float scale, bool tight = false)
     {
-        float total = BladeLength(c) + c.Hilt.Length() + 2;
+        // The plasma blade's crescents reach below the emitter, so reserve room for them on short hilts.
+        float hiltSpan = c.BladeStyle == BladeStyle.Plasma ? MathF.Max(c.Hilt.Length(), 14.5f) : c.Hilt.Length();
+        float total = BladeLength(c) + hiltSpan + 2;
         float pad = tight ? 7 : 18 + 26 * (float)c.GlowRadius;
         int w = (int)MathF.Ceiling((total * MathF.Sin(Angle) + 2 * pad) * scale);
         int h = (int)MathF.Ceiling((total * MathF.Cos(Angle) + 2 * pad) * scale);
@@ -76,7 +78,7 @@ public static class SaberRenderer
     /// Horizontal hilt-only icon (emitter pointing right) for pickers.
     public static SKImage RenderHiltIcon(SaberConfig c, int height)
     {
-        float s = height / 12f;
+        float s = height / (c.Hilt == HiltStyle.Plasma ? 14f : 12f);
         var info = new SKImageInfo((int)MathF.Ceiling((c.Hilt.Length() + 6) * s), height, SKColorType.Bgra8888, SKAlphaType.Premul);
         using var surface = SKSurface.Create(info);
         var canvas = surface.Canvas;
@@ -279,50 +281,73 @@ public static class SaberRenderer
         canvas.DrawPath(body, outline);
     }
 
-    /// Twin plasma prongs (energy-sword style): they rise apart from the hilt and meet in one point at the tip.
-    static float PlasmaOuter(float u, float w) => w * 1.05f * MathF.Pow(1 - u, 0.75f) * (1 + 0.3f * u);
-    static float PlasmaInner(float u, float w) => w * 0.32f * MathF.Pow(1 - u, 1.6f);
-
-    static SKPath PlasmaPath(float len, float w)
+    /// Energy-sword outline for the right-hand prong, sampled tip → bottom point along both edges.
+    /// Each prong is a long straight blade with its own tip; below the neck it sweeps out and down into a
+    /// crescent, and the two crescents ring the handle. The hotspot (0, len) sits between the two tips.
+    static (SKPoint[] Outer, SKPoint[] Inner) PlasmaEdges(float len, float k)
     {
-        var p = new SKPath();
-        const int n = 28;
-        foreach (float sx in new[] { -1f, 1f })
-        {
-            p.MoveTo(sx * PlasmaOuter(0, w), -0.5f);
-            for (int i = 1; i <= n; i++)
+        static IEnumerable<SKPoint> Line(SKPoint a, SKPoint b, int n) =>
+            Enumerable.Range(0, n + 1).Select(i => { float t = (float)i / n; return new SKPoint(a.X + (b.X - a.X) * t, a.Y + (b.Y - a.Y) * t); });
+        static IEnumerable<SKPoint> Cubic(SKPoint p0, SKPoint c1, SKPoint c2, SKPoint p3, int n, bool includeStart = false) =>
+            Enumerable.Range(includeStart ? 0 : 1, includeStart ? n + 1 : n).Select(i =>
             {
-                float u = (float)i / n;
-                p.LineTo(sx * PlasmaOuter(u, w), -0.5f + u * (len + 0.5f));
-            }
-            for (int i = n - 1; i >= 0; i--)
-            {
-                float u = (float)i / n;
-                p.LineTo(sx * PlasmaInner(u, w), -0.5f + u * (len + 0.5f));
-            }
-            p.Close();
-        }
-        return p;
+                float t = (float)i / n, m = 1 - t;
+                float a = m * m * m, b = 3 * m * m * t, c = 3 * m * t * t, d = t * t * t;
+                return new SKPoint(a * p0.X + b * c1.X + c * c2.X + d * p3.X, a * p0.Y + b * c1.Y + c * c2.Y + d * p3.Y);
+            });
+        var tip = new SKPoint(0.6f, len);
+        var bottom = new SKPoint(4.6f, -14.5f);
+        var neckOuter = new SKPoint(3.4f, 3.0f);
+        var wing = new SKPoint(8.2f, -4.5f);
+        var neckInner = new SKPoint(0.9f, -0.8f);
+        var ring = new SKPoint(5.4f, -5.8f);
+        var outer = Cubic(tip, new SKPoint(1.4f, len * 0.6f), new SKPoint(2.9f, len * 0.25f), neckOuter, 24, includeStart: true)
+            .Concat(Cubic(neckOuter, new SKPoint(6.4f, 2.0f), new SKPoint(8.6f, -1.5f), wing, 12))
+            .Concat(Cubic(wing, new SKPoint(7.8f, -9.5f), new SKPoint(6.0f, -12.8f), bottom, 12));
+        var inner = Line(tip, neckInner, 24)
+            .Concat(Cubic(neckInner, new SKPoint(3.0f, -0.8f), new SKPoint(5.2f, -2.6f), ring, 12))
+            .Concat(Cubic(ring, new SKPoint(5.6f, -8.5f), new SKPoint(5.0f, -11.8f), bottom, 12));
+        return (outer.Select(p => new SKPoint(p.X * k, p.Y)).ToArray(), inner.Select(p => new SKPoint(p.X * k, p.Y)).ToArray());
     }
 
-    static void DrawPlasma(SaberConfig c, SKCanvas canvas, float len, float w, float I, float R)
+    static void DrawPlasma(SaberConfig c, SKCanvas canvas, float L, float e, float I, float R, int seed)
     {
-        using var body = PlasmaPath(len, w);
-        GlowShape(canvas, body, body, null, c, I, R);
-        var hot = c.Blade.Mix(RGB.White, Math.Min(1, 0.55 + 0.45 * c.CoreWhiteness));
-        using var coreLine = Stroke(hot.Sk(), 0.45f, SKStrokeCap.Round, SKStrokeJoin.Round);
+        var (outer, inner) = PlasmaEdges(L, (float)c.Thickness);
+        // Igniting grows the whole energy shape out of the neck; retracting shrinks it back in.
+        SKPoint Grow(SKPoint p, float sx) => new(p.X * sx * e, p.Y * e);
+        using var body = new SKPath();
         foreach (float sx in new[] { -1f, 1f })
         {
+            var pts = outer.Concat(inner.Reverse()).Select(p => Grow(p, sx)).ToArray();
+            body.MoveTo(pts[0]);
+            for (int i = 1; i < pts.Length; i++) body.LineTo(pts[i]);
+            body.Close();
+        }
+        GlowShape(canvas, body, body, null, c, I, R);
+
+        var hot = c.Blade.Mix(RGB.White, Math.Min(1, 0.55 + 0.45 * c.CoreWhiteness));
+        canvas.Save();
+        canvas.ClipPath(body, antialias: true);
+        using var coreLine = Stroke(hot.Sk(0.9), 0.5f * e, SKStrokeCap.Round, SKStrokeJoin.Round);
+        using var veinLine = Stroke(RGB.White.Sk(0.75), 0.22f * e, SKStrokeCap.Round, SKStrokeJoin.Round);
+        foreach (float sx in new[] { -1f, 1f })
+        {
+            var mid = outer.Zip(inner, (o, n) => new SKPoint((o.X + n.X) / 2, (o.Y + n.Y) / 2)).ToArray();
             using var core = new SKPath();
-            core.MoveTo(sx * (PlasmaOuter(0, w) + PlasmaInner(0, w)) / 2, 0);
-            const int n = 24;
-            for (int i = 1; i <= n; i++)
+            using var veins = new SKPath();
+            for (int i = 2; i < mid.Length; i++)
             {
-                float u = (float)i / n * 0.96f;
-                core.LineTo(sx * (PlasmaOuter(u, w) + PlasmaInner(u, w)) / 2, u * len);
+                var m = Grow(mid[i], sx);
+                float jitter = (Hash(i + (sx > 0 ? 300 : 0), seed) - 0.5f) * 0.8f;
+                var v = Grow(new SKPoint(mid[i].X + (outer[i].X - inner[i].X) * 0.5f * jitter,
+                                         mid[i].Y + (outer[i].Y - inner[i].Y) * 0.5f * jitter), sx);
+                if (i == 2) { core.MoveTo(m); veins.MoveTo(v); }
+                else { core.LineTo(m); veins.LineTo(v); }
             }
             canvas.DrawPath(core, coreLine);
+            canvas.DrawPath(veins, veinLine);
         }
+        canvas.Restore();
     }
 
     static void GlowShape(SKCanvas canvas, SKPath body, SKPath halo, SKPath? core, SaberConfig c, float I, float R)
@@ -372,7 +397,7 @@ public static class SaberRenderer
         }
         if (c.BladeStyle == BladeStyle.Plasma)
         {
-            DrawPlasma(c, canvas, len, w, I, R);
+            DrawPlasma(c, canvas, L, e, I, R, seed);
             return;
         }
 
@@ -807,25 +832,32 @@ public static class SaberRenderer
 
             case HiltStyle.Plasma:
             {
-                // Short dark handle with curved guard brackets and glowing slots lit in the blade color.
+                // One energy-sword handle blending the Halo designs: a winged housing held across the middle of the
+                // blade ring, a blue core light and wing studs, and a short fin rising to the neck.
                 var lit = c.BladeStyle == BladeStyle.Darksaber ? new RGB(0.9, 0.94, 1) : c.Blade;
+                MetalPoly(canvas, f, (-0.8f, -4.2f), (0.8f, -4.2f), (0.35f, 0.3f), (-0.35f, 0.3f));
+                FillRRect(canvas, -0.22f, -0.6f, 0.44f, 2.8f, 0.22f, lit);
+                using (var housing = new SKPath())
+                {
+                    housing.MoveTo(-6.2f, -6.4f);
+                    housing.CubicTo(-5.0f, -5.2f, -3.4f, -4.2f, -2.0f, -4.2f);
+                    housing.LineTo(2.0f, -4.2f);
+                    housing.CubicTo(3.4f, -4.2f, 5.0f, -5.2f, 6.2f, -6.4f);
+                    housing.CubicTo(5.0f, -8.2f, 3.8f, -9.6f, 2.6f, -9.6f);
+                    housing.LineTo(-2.6f, -9.6f);
+                    housing.CubicTo(-3.8f, -9.6f, -5.0f, -8.2f, -6.2f, -6.4f);
+                    housing.Close();
+                    Metal(canvas, housing, f, 6.2f);
+                }
+                using (var face = RRect(-1.7f, -4.6f, 3.4f, 4.6f, 1.0f)) Metal(canvas, face, f.Alt(), 1.7f);
+                using (var glow = Fill(lit.Sk(0.9), Sigma(3))) canvas.DrawOval(0, -6.9f, 0.9f, 0.9f, glow);
+                using (var core = Fill(lit.Mix(RGB.White, 0.35).Sk())) canvas.DrawOval(0, -6.9f, 0.9f, 0.9f, core);
                 foreach (float sx in new[] { -1f, 1f })
                 {
-                    using var arc = new SKPath();
-                    arc.MoveTo(sx * 2.2f, 0.6f);
-                    arc.CubicTo(sx * 5.4f, 0.2f, sx * 5.2f, -6.2f, sx * 3.0f, -7.6f);
-                    using (var o = Stroke(f.Dark().Mix(RGB.Black, 0.4).Sk(), 1.3f, SKStrokeCap.Round)) canvas.DrawPath(arc, o);
-                    using (var m = Stroke(f.Base().Mix(f.Light(), 0.2).Sk(), 0.9f, SKStrokeCap.Round)) canvas.DrawPath(arc, m);
-                    using (var l = Stroke(lit.Mix(RGB.White, 0.3).Sk(0.95), 0.28f, SKStrokeCap.Round)) canvas.DrawPath(arc, l);
+                    Dot(canvas, sx * 4.3f, -6.4f, 0.45f, lit);
+                    Dot(canvas, sx * 3.0f, -8.0f, 0.35f, f.Light());
                 }
-                using (var housing = Poly((-2.6f, 1.0f), (2.6f, 1.0f), (2.2f, -2.6f), (-2.2f, -2.6f))) Metal(canvas, housing, f, 2.6f);
-                FillRRect(canvas, -1.6f, 0.4f, 3.2f, 0.5f, 0.25f, lit);
-                FillRRect(canvas, -1.2f, -0.9f, 2.4f, 0.4f, 0.2f, lit, 0.8);
-                using var grip = Poly((-1.9f, -2.6f), (1.9f, -2.6f), (1.6f, -12.4f), (-1.6f, -12.4f));
-                Metal(canvas, grip, HiltFinish.Black, 1.9f);
-                DiagWraps(canvas, -3.0f, -12.0f, 3.8f, 7, f.Dark().Mix(RGB.White, 0.15), grip);
-                Seg(canvas, -12.4f, 2.4f, 4.0f, f, 1.2f);
-                Dot(canvas, 0, -13.6f, 0.55f, lit);
+                FillRRect(canvas, -2.4f, -8.9f, 4.8f, 0.6f, 0.3f, Rubber, 0.8);
                 break;
             }
 
