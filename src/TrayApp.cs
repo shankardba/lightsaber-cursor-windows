@@ -30,8 +30,34 @@ internal sealed class TrayApp : ApplicationContext
 
         hotKey = new HotKeyWindow(() => settings.Update(p => p.Enabled = !p.Enabled));
         if (settings.Prefs.Enabled) engine.Start();
-        if (openCustomizer || !File.Exists(Path.Combine(AppSettings.Folder, "settings.json"))) ShowCustomizer();
-        if (!File.Exists(Path.Combine(AppSettings.Folder, "settings.json"))) settings.Update(_ => { });
+        bool firstRun = !File.Exists(Path.Combine(AppSettings.Folder, "settings.json"));
+        if (openCustomizer || firstRun) ShowCustomizer();
+        if (firstRun)
+        {
+            settings.Update(_ => { });
+            // Wait a moment so the tray icon exists (Windows only registers its visibility setting once shown).
+            var once = new System.Windows.Forms.Timer { Interval = 2500 };
+            once.Tick += (_, _) =>
+            {
+                once.Dispose();
+                FirstRunQuestions();
+            };
+            once.Start();
+        }
+    }
+
+    /// Asked once, on the very first launch only.
+    void FirstRunQuestions()
+    {
+        if (!AppSettings.LaunchAtLogin &&
+            MessageBox.Show("Start Lightsaber Cursor automatically when you sign in?\n\nYou can change this later in Customize → Behavior.",
+                "Welcome to Lightsaber Cursor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            AppSettings.LaunchAtLogin = true;
+
+        if (TrayIconSetting.Find() is { } key && !TrayIconSetting.IsPromoted(key) &&
+            MessageBox.Show("Keep the lightsaber icon always visible on the taskbar?\n\nOtherwise Windows tucks it under the ^ arrow next to the clock.",
+                "Lightsaber Cursor", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes)
+            TrayIconSetting.Promote(key);
     }
 
     public void ShowCustomizer()

@@ -13,11 +13,29 @@ The Windows version of Lightsaber Cursor. It's a system-tray app that turns the 
 
 ---
 
-## Setup, step by step
+## Quick setup
+
+You need **Windows 11**, on a regular Intel/AMD PC (x64) or an ARM PC. No administrator rights are needed.
+
+1. Get the code: on GitHub, open the repo while signed in and choose **Code → Download ZIP**. Right-click the ZIP → **Extract All…**. (Or `git clone` it; see Step 2 below.)
+2. Open the extracted folder and double-click **`Setup.cmd`**.
+   - If Windows shows a **"Windows protected your PC"** box, click **More info → Run anyway**.
+3. Follow the prompts. The script:
+   - Checks that this PC runs Windows 11.
+   - If Microsoft's free .NET 8 SDK is missing, asks before installing it just for your user account (about 250 MB download, no administrator rights).
+   - Builds the app, installs it with a Start menu entry and launches it.
+
+The first time the app starts, it opens the Customizer and asks two questions: whether to **start at sign-in**, and whether to keep its **tray icon always visible** on the taskbar instead of hidden under the **^** arrow. These questions only appear on the first launch.
+
+The manual steps below do the same thing by hand.
+
+---
+
+## Manual setup, step by step
 
 ### What you need
 
-- **Windows 10 or 11**, on a regular Intel/AMD PC (x64) or an ARM PC. The build detects which.
+- **Windows 11**, on a regular Intel/AMD PC (x64) or an ARM PC. The build detects which.
 - About 10 minutes. No administrator rights are needed for the app itself.
 
 ### Step 1: Install the .NET 8 SDK
@@ -72,10 +90,10 @@ Press **Start**, type **Lightsaber Cursor** and press Enter. On first launch the
 
 ### Step 5: Keep the tray icon visible
 
-Windows may tuck the saber icon into the hidden-icons area (the **^** arrow next to the clock). To keep it always visible:
+Windows may tuck the saber icon into the hidden-icons area (the **^** arrow next to the clock). The app offers to fix this on first launch. To do it by hand:
 
 1. Right-click the taskbar → **Taskbar settings**.
-2. Open **Other system tray icons** (on Windows 10: *Select which icons appear on the taskbar*).
+2. Open **Other system tray icons**.
 3. Turn **Lightsaber Cursor** on.
 
 ### Step 6: Pick your saber
@@ -86,7 +104,7 @@ Windows may tuck the saber icon into the hidden-icons area (the **^** arrow next
 
 ### Step 7: Launch at login (optional)
 
-Customizer → **Behavior** tab → **System** → tick **Launch at login**.
+The app asks about this on first launch. To change it later: Customizer → **Behavior** tab → **System** → **Launch at login**.
 
 ### Everyday use
 
@@ -108,7 +126,8 @@ Customizer → **Behavior** tab → **System** → tick **Launch at login**.
   Signing out and back in also resets it.
 - **Can't find the app window:** it lives in the tray. Double-click the tray icon, or launch it again from the Start menu. A second launch just brings up the Customizer.
 - **The saber disappears on window edges, busy spinners or in some apps:** this is intentional. Those pointers stay standard Windows pointers so you can see what you're doing.
-- **`dotnet` is not recognized:** reopen PowerShell after Step 1, or install the SDK from Microsoft's .NET download page.
+- **`dotnet` is not recognized:** reopen PowerShell after Step 1, or install the SDK from Microsoft's .NET download page. `Setup.cmd` avoids this by installing .NET into `%LOCALAPPDATA%\dotnet8`, which the build script finds on its own.
+- **`Setup.cmd` says it couldn't download .NET:** check your internet connection and run it again. It's safe to re-run at any point.
 
 ### Uninstall
 
