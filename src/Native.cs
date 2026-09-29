@@ -11,6 +11,19 @@ internal static class Native
     public struct SIZE { public int CX, CY; }
 
     [StructLayout(LayoutKind.Sequential)]
+    public struct RAWINPUTDEVICE
+    {
+        public ushort UsagePage;
+        public ushort Usage;
+        public uint Flags;
+        public IntPtr Target;
+    }
+    public const int WM_INPUT = 0x00FF;
+    public const uint RIDEV_REMOVE = 0x1, RIDEV_INPUTSINK = 0x100;
+    [DllImport("user32.dll", SetLastError = true)]
+    public static extern bool RegisterRawInputDevices(RAWINPUTDEVICE[] devices, uint count, uint size);
+
+    [StructLayout(LayoutKind.Sequential)]
     public struct CURSORINFO
     {
         public int cbSize;

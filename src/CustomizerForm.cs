@@ -20,8 +20,11 @@ internal sealed class CustomizerForm : Form
     readonly SKControl preview = new() { Dock = DockStyle.Fill };
     readonly ComboBox previewMode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 130 };
     readonly CheckBox lightBackground = new() { Text = "Light background", AutoSize = true };
-    readonly System.Windows.Forms.Timer previewTimer = new() { Interval = 33 };
+    // 24 fps matches the blade's flicker rate; the preview only animates while this window is active.
+    readonly System.Windows.Forms.Timer previewTimer = new() { Interval = 42 };
     readonly Stopwatch previewClock = Stopwatch.StartNew();
+    RenderedImage? previewImage;
+    (SaberConfig Config, int Ext, int Frame, int W, int H)? previewKey;
 
     readonly CheckBox randHilt = new() { Text = "Hilt", AutoSize = true };
     readonly CheckBox randColor = new() { Text = "Color", AutoSize = true };
@@ -115,6 +118,7 @@ internal sealed class CustomizerForm : Form
             settings.Changed -= OnSettingsChanged;
             engine.ActiveChanged -= OnActiveChanged;
             previewTimer.Dispose();
+            previewImage?.Dispose();
         };
 
         var sw = Stopwatch.StartNew();
@@ -127,8 +131,10 @@ internal sealed class CustomizerForm : Form
         SyncFromPrefs();
         Log.Write($"customizer built in {sw.ElapsedMilliseconds}ms");
         Shown += (_, _) => Log.Write("customizer shown");
-        previewTimer.Tick += (_, _) => preview.Invalidate();
+        previewTimer.Tick += (_, _) => AdvancePreview();
         previewTimer.Start();
+        previewMode.SelectedIndexChanged += (_, _) => preview.Invalidate();
+        lightBackground.CheckedChanged += (_, _) => preview.Invalidate();
     }
 
     void OnSettingsChanged()
@@ -333,22 +339,49 @@ internal sealed class CustomizerForm : Form
         Log.Time("preview", sw.Elapsed.TotalMilliseconds);
     }
 
-    void PaintPreviewCore(SKPaintSurfaceEventArgs e)
+    SaberState PreviewState()
     {
-        var canvas = e.Surface.Canvas;
-        canvas.Clear(lightBackground.Checked ? new SKColor(237, 237, 237) : new SKColor(10, 13, 20));
-        var cfg = settings.Prefs.Saber;
         double t = previewClock.Elapsed.TotalSeconds;
-        var state = previewMode.SelectedIndex switch
+        return previewMode.SelectedIndex switch
         {
             1 => new SaberState(1, t),
             2 => new SaberState(0, t),
             _ => LiveLoop(t),
         };
-        var (lay, _) = SaberRenderer.Layout(cfg, 1);
-        float s = MathF.Min(e.Info.Width / (float)lay.Width, e.Info.Height / (float)lay.Height) * 0.92f;
-        using var r = SaberRenderer.Render(cfg, state, s);
-        canvas.DrawImage(r.Image, (e.Info.Width - r.Width) / 2f, (e.Info.Height - r.Height) / 2f);
+    }
+
+    static (int Ext, int Frame) PreviewFrame(SaberConfig cfg, SaberState st)
+    {
+        bool animated = cfg.Animated || cfg.BladeStyle == BladeStyle.Unstable;
+        return ((int)(st.Ext * 120), animated && st.Ext > 0 ? (int)(st.Time * 24) : 0);
+    }
+
+    /// Repaints the preview only when its frame changes, and only while this window is in front and not minimized.
+    void AdvancePreview()
+    {
+        if (!Visible || WindowState == FormWindowState.Minimized || ActiveForm != this) return;
+        var cfg = settings.Prefs.Saber;
+        var (ext, frame) = PreviewFrame(cfg, PreviewState());
+        if (previewKey is not { } k || k.Config != cfg || k.Ext != ext || k.Frame != frame) preview.Invalidate();
+    }
+
+    void PaintPreviewCore(SKPaintSurfaceEventArgs e)
+    {
+        var canvas = e.Surface.Canvas;
+        canvas.Clear(lightBackground.Checked ? new SKColor(237, 237, 237) : new SKColor(10, 13, 20));
+        var cfg = settings.Prefs.Saber;
+        var state = PreviewState();
+        var (ext, frame) = PreviewFrame(cfg, state);
+        var key = (cfg, ext, frame, e.Info.Width, e.Info.Height);
+        if (previewImage == null || previewKey != key)
+        {
+            var (lay, _) = SaberRenderer.Layout(cfg, 1);
+            float s = MathF.Min(e.Info.Width / (float)lay.Width, e.Info.Height / (float)lay.Height) * 0.92f;
+            previewImage?.Dispose();
+            previewImage = SaberRenderer.Render(cfg, state, s);
+            previewKey = key;
+        }
+        canvas.DrawImage(previewImage.Image, (e.Info.Width - previewImage.Width) / 2f, (e.Info.Height - previewImage.Height) / 2f);
     }
 
     static SaberState LiveLoop(double t)

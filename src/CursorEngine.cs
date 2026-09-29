@@ -31,13 +31,32 @@ internal sealed class CursorEngine : IDisposable
     readonly List<(double T, SKPoint Emitter, SKPoint Tip)> history = new();
 
     RenderedImage? cached;
+    bool cachedOwned;
     (SaberConfig Config, int Ext, int Frame, float Scale)? cacheKey;
+
+    // Frame rate follows what's on screen: full speed while the pointer moves or the blade animates, 24 Hz for a
+    // flickering blade at rest (the rate its frame loop plays at), and 10 Hz when nothing changes, to save battery.
+    enum Pace { Fast, Shimmer, Rest }
+    Pace pace = Pace.Fast;
+    bool fineTimer, listening;
+
+    // What the overlay shows now, so unchanged frames aren't redrawn.
+    bool presented, trailShown;
+    (int X, int Y)? lastPresentedMouse;
+
+    // A fully lit flickering blade replays a loop of frames drawn once, instead of redrawing every frame.
+    // 46 frames at 24 fps span two turns of the Inquisitor ring's three-fold symmetry, so its spin loops seamlessly.
+    const int LoopFrames = 46;
+    static readonly double LoopDuration = 2 * (2 * Math.PI / 3) / 2.2;
+    readonly Dictionary<int, RenderedImage> loop = new();
+    (SaberConfig Config, float Scale)? loopKey;
 
     public CursorEngine(AppSettings settings)
     {
         this.settings = settings;
         displayed = settings.Prefs.Saber;
         timer.Tick += (_, _) => Tick();
+        overlay.MouseInput += Wake;
         settings.Changed += () =>
         {
             if (settings.Prefs.Enabled && !running) Start();
@@ -53,13 +72,14 @@ internal sealed class CursorEngine : IDisposable
     {
         if (running) return;
         running = true;
-        Native.timeBeginPeriod(1);
         overlay.Show();
         Native.GetCursorPos(out lastMouse);
         lastMoveTime = Now;
         ext = 0;
         wasRetracted = true;
+        presented = false;
         SystemCursors.Apply();
+        SetPace(Pace.Fast);
         timer.Start();
     }
 
@@ -68,9 +88,49 @@ internal sealed class CursorEngine : IDisposable
         if (!running) return;
         running = false;
         timer.Stop();
-        Native.timeEndPeriod(1);
+        if (fineTimer) Native.timeEndPeriod(1);
+        fineTimer = false;
+        if (listening) overlay.ListenForMouse(false);
+        listening = false;
         overlay.Hide();
         SystemCursors.Restore();
+    }
+
+    void SetPace(Pace p)
+    {
+        pace = p;
+        timer.Interval = p switch { Pace.Fast => 8, Pace.Shimmer => 42, _ => 100 };
+        // 8 ms frames need Windows' 1 ms timer resolution; holding it all the time drains laptop batteries.
+        bool fine = p == Pace.Fast;
+        if (fine != fineTimer)
+        {
+            if (fine) Native.timeBeginPeriod(1); else Native.timeEndPeriod(1);
+            fineTimer = fine;
+        }
+        // While resting, any mouse movement or click wakes the loop straight away.
+        bool listen = p != Pace.Fast;
+        if (listen != listening)
+        {
+            overlay.ListenForMouse(listen);
+            listening = listen;
+        }
+    }
+
+    void Wake()
+    {
+        if (!running || pace == Pace.Fast) return;
+        SetPace(Pace.Fast);
+        Tick();
+    }
+
+    /// Picks the frame rate for what's happening now.
+    void UpdatePace(double now, bool settled, bool saberShowing)
+    {
+        var cfg = displayed;
+        var want = !settled || now - lastMoveTime < 0.6 || mouseWasDown || sparkStart != null ? Pace.Fast
+            : ext > 0 && saberShowing && (cfg.Animated || cfg.BladeStyle == BladeStyle.Unstable) ? Pace.Shimmer
+            : Pace.Rest;
+        if (want != pace) SetPace(want);
     }
 
     (SaberConfig, string, string) Resolve()
@@ -197,23 +257,65 @@ internal sealed class CursorEngine : IDisposable
         if (!SystemCursors.SaberCursorShowing())
         {
             history.Clear();
-            overlay.Present(mouse.X, mouse.Y, 1, 1, _ => { });
+            if (presented) overlay.Present(mouse.X, mouse.Y, 1, 1, _ => { });
+            presented = false;
+            UpdatePace(now, true, false);
             return;
         }
         Render(now, mouse, (float)(p.Scale * dpi), p, dpi);
+        UpdatePace(now, ext == target && pending == null, true);
+    }
+
+    void SetCached(RenderedImage? image, bool owned)
+    {
+        if (cachedOwned) cached?.Dispose();
+        cached = image;
+        cachedOwned = owned;
+    }
+
+    void ClearLoop()
+    {
+        if (!cachedOwned && cached != null) cached = null;
+        foreach (var img in loop.Values) img.Dispose();
+        loop.Clear();
     }
 
     void Render(double now, Native.POINT mouse, float scale, Prefs p, double dpi)
     {
         var cfg = displayed;
         bool animated = cfg.Animated || cfg.BladeStyle == BladeStyle.Unstable;
-        var key = (cfg, (int)(ext * 120), animated && ext > 0 ? (int)(now * 40) : 0, scale);
-        if (cached == null || cacheKey != key)
+        bool looping = animated && ext >= 1;
+        int frame = !animated || ext <= 0 ? 0
+            : looping ? (int)(now / LoopDuration * LoopFrames) % LoopFrames
+            : (int)(now * 40);
+        var key = (cfg, (int)(ext * 120), frame, scale);
+        bool keyChanged = cached == null || cacheKey != key;
+        // Nothing moved and the image is the same: leave the overlay alone.
+        if (!keyChanged && presented && lastPresentedMouse == (mouse.X, mouse.Y) && sparkStart == null && !trailShown)
+            return;
+        if (keyChanged)
         {
-            cached?.Dispose();
-            cached = SaberRenderer.Render(cfg, new SaberState(ext, now), scale);
+            if (looping)
+            {
+                if (loopKey != (cfg, scale))
+                {
+                    ClearLoop();
+                    loopKey = (cfg, scale);
+                }
+                if (!loop.TryGetValue(frame, out var img))
+                {
+                    img = SaberRenderer.Render(cfg, new SaberState(1, frame * LoopDuration / LoopFrames), scale);
+                    loop[frame] = img;
+                }
+                SetCached(img, owned: false);
+            }
+            else
+            {
+                SetCached(SaberRenderer.Render(cfg, new SaberState(ext, now), scale), owned: true);
+            }
             cacheKey = key;
         }
+        if (cached == null) return;
 
         var tipFull = new SKPoint(mouse.X, mouse.Y);
         var saberRect = SKRect.Create(mouse.X - cached.Anchor.X, mouse.Y - cached.Anchor.Y, cached.Width, cached.Height);
@@ -271,13 +373,17 @@ internal sealed class CursorEngine : IDisposable
             if (sparkStart != null)
                 SaberRenderer.DrawSpark(canvas, new SKPoint(sparkPoint.X - ox, sparkPoint.Y - oy), sparkProgress, bladeColor, scale);
         });
+        presented = true;
+        lastPresentedMouse = (mouse.X, mouse.Y);
+        trailShown = trail;
     }
 
     public void Dispose()
     {
         Stop();
         timer.Dispose();
-        cached?.Dispose();
+        SetCached(null, false);
+        ClearLoop();
         overlay.Dispose();
     }
 }

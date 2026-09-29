@@ -90,6 +90,28 @@ internal sealed class Overlay : Form
         Native.UpdateLayeredWindow(Handle, IntPtr.Zero, ref dst, ref size, memDC, ref src, 0, ref blend, Native.ULW_ALPHA);
     }
 
+    /// Raised on any mouse movement or button while <see cref="ListenForMouse"/> is on, even when another app has focus.
+    public event Action? MouseInput;
+
+    /// Raw mouse input (no hook, no permission) lets a resting frame loop wake the moment the mouse is used.
+    public void ListenForMouse(bool on)
+    {
+        var device = new Native.RAWINPUTDEVICE
+        {
+            UsagePage = 0x01, // generic desktop
+            Usage = 0x02, // mouse
+            Flags = on ? Native.RIDEV_INPUTSINK : Native.RIDEV_REMOVE,
+            Target = on ? Handle : IntPtr.Zero,
+        };
+        Native.RegisterRawInputDevices(new[] { device }, 1, (uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.RAWINPUTDEVICE>());
+    }
+
+    protected override void WndProc(ref Message m)
+    {
+        if (m.Msg == Native.WM_INPUT) MouseInput?.Invoke();
+        base.WndProc(ref m);
+    }
+
     public void KeepOnTop() =>
         Native.SetWindowPos(Handle, Native.HWND_TOPMOST, 0, 0, 0, 0, Native.SWP_NOMOVE | Native.SWP_NOSIZE | Native.SWP_NOACTIVATE);
 
