@@ -12,7 +12,9 @@ internal sealed class CursorEngine : IDisposable
     readonly System.Windows.Forms.Timer timer = new() { Interval = 8 };
     readonly Stopwatch clock = Stopwatch.StartNew();
 
-    double lastTick, lastMoveTime, lastResolve, lastTopmost;
+    double lastTick, lastMoveTime, lastResolve, lastLayerCheck;
+    /// True while the normal Windows pointer is shown because the saber can't be drawn on top (Start, UAC…).
+    bool showingSystemPointer;
     Native.POINT lastMouse;
     double speed;
     double ext;
@@ -78,6 +80,8 @@ internal sealed class CursorEngine : IDisposable
         ext = 0;
         wasRetracted = true;
         presented = false;
+        showingSystemPointer = false;
+        lastLayerCheck = 0;
         SystemCursors.Apply();
         SetPace(Pace.Fast);
         timer.Start();
@@ -193,7 +197,8 @@ internal sealed class CursorEngine : IDisposable
         lastTick = now;
         var p = settings.Prefs;
 
-        Native.GetCursorPos(out var mouse);
+        // Fails while the secure desktop has the input; keep the last position then.
+        if (!Native.GetCursorPos(out var mouse)) mouse = lastMouse;
         double dist = Math.Sqrt(Math.Pow(mouse.X - lastMouse.X, 2) + Math.Pow(mouse.Y - lastMouse.Y, 2));
         if (dist > 0) lastMoveTime = now;
         double dpi = Native.DpiScaleAt(mouse);
@@ -217,10 +222,17 @@ internal sealed class CursorEngine : IDisposable
             lastResolve = now;
             UpdateActive();
         }
-        if (now - lastTopmost > 1)
+        if (now - lastLayerCheck > 0.05)
         {
-            lastTopmost = now;
-            overlay.KeepOnTop();
+            lastLayerCheck = now;
+            bool wantSystem = SystemLayers.SecureDesktopActive() || SystemLayers.Covers(mouse);
+            if (wantSystem != showingSystemPointer)
+            {
+                showingSystemPointer = wantSystem;
+                if (wantSystem) SystemCursors.Restore(); else SystemCursors.Apply();
+            }
+            // Menus and popups that open after the overlay land above it; put the saber back in front.
+            if (!wantSystem && SystemLayers.AnythingAbove(overlay.Handle)) overlay.KeepOnTop();
         }
 
         bool idle = p.RetractWhenIdle && now - lastMoveTime > p.IdleSeconds;
@@ -253,8 +265,9 @@ internal sealed class CursorEngine : IDisposable
             }
         }
 
-        // Native pointers (resize, busy, app-specific) take over from the saber whenever they appear.
-        if (!SystemCursors.SaberCursorShowing())
+        // Native pointers (resize, busy, app-specific) take over from the saber whenever they appear,
+        // as does the normal arrow over system UI the saber can't be drawn above.
+        if (showingSystemPointer || !SystemCursors.SaberCursorShowing())
         {
             history.Clear();
             if (presented) overlay.Present(mouse.X, mouse.Y, 1, 1, _ => { });

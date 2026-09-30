@@ -126,6 +126,7 @@ The app asks about this on first launch. To change it later: Customizer → **Be
   Signing out and back in also resets it.
 - **Can't find the app window:** it lives in the tray. Double-click the tray icon, or launch it again from the Start menu. A second launch just brings up the Customizer.
 - **The saber disappears on window edges, busy spinners or in some apps:** this is intentional. Those pointers stay standard Windows pointers so you can see what you're doing.
+- **The normal pointer shows over the Start menu, Search, notifications, Quick Settings, Alt+Tab, the lock screen and UAC prompts:** this is expected. Windows doesn't let any app draw above those, so the app switches back to the normal pointer there. Everywhere else, including menus and pop-ups, the saber stays in front.
 - **`dotnet` is not recognized:** reopen PowerShell after Step 1, or install the SDK from Microsoft's .NET download page. `Setup.cmd` avoids this by installing .NET into `%LOCALAPPDATA%\dotnet8`, which the build script finds on its own.
 - **`Setup.cmd` says it couldn't download .NET:** check your internet connection and run it again. It's safe to re-run at any point.
 
@@ -149,4 +150,5 @@ The app asks about this on first launch. To change it later: Customizer → **Be
 1. `SetSystemCursor` swaps the arrow, I-beam and hand pointers for a transparent cursor.
 2. A click-through, topmost, per-pixel-alpha layered window (`UpdateLayeredWindow`) draws the saber, spark and trail at the pointer. The drawing is done with SkiaSharp, ported from the macOS renderer.
 3. Each frame, `GetCursorInfo` shows which pointer Windows wants. If it isn't one of the replaced ones, the saber hides and the native pointer shows.
-4. The original cursors are restored on quit, on crash and at logoff. If the process is killed outright, the next launch restores them, using a marker file in `%APPDATA%\LightsaberCursor`.
+4. Menus and pop-ups opened after the overlay would cover it, so the overlay re-raises itself whenever a visible window lands above it. Start, Search, Alt+Tab, notifications and the lock screen sit in higher system z-order bands (`GetWindowBand`) that no app can draw above, and UAC runs on the secure desktop. Over those, the original cursors are put back until the pointer leaves.
+5. The original cursors are restored on quit, on crash and at logoff. If the process is killed outright, the next launch restores them, using a marker file in `%APPDATA%\LightsaberCursor`.

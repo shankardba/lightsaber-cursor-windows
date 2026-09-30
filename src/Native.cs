@@ -90,6 +90,18 @@ internal static class Native
     [DllImport("winmm.dll")] public static extern uint timeBeginPeriod(uint ms);
     [DllImport("winmm.dll")] public static extern uint timeEndPeriod(uint ms);
 
+    public const uint GA_ROOT = 2, GW_HWNDPREV = 3, DESKTOP_READOBJECTS = 0x1;
+    public const int DWMWA_CLOAKED = 14;
+    [DllImport("user32.dll")] public static extern IntPtr WindowFromPoint(POINT p);
+    [DllImport("user32.dll")] public static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+    [DllImport("user32.dll")] public static extern IntPtr GetWindow(IntPtr hWnd, uint cmd);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr hWnd);
+    /// Undocumented but present since Windows 8: which z-order band (desktop, Start, lock screen…) a window is in.
+    [DllImport("user32.dll")] public static extern bool GetWindowBand(IntPtr hWnd, out uint band);
+    [DllImport("dwmapi.dll")] public static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out int value, int size);
+    [DllImport("user32.dll")] public static extern IntPtr OpenInputDesktop(uint flags, bool inherit, uint access);
+    [DllImport("user32.dll")] public static extern bool CloseDesktop(IntPtr desktop);
+
     public static bool IsDown(int vk) => (GetAsyncKeyState(vk) & 0x8000) != 0;
 
     public static double DpiScaleAt(POINT p)
