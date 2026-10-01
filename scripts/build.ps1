@@ -18,7 +18,6 @@ if (-not (Test-Path $dotnet)) { $dotnet = 'dotnet' }
 New-Item -ItemType Directory -Force -Path $src | Out-Null
 robocopy $root $src /MIR /XD .git bin obj /NFL /NDL /NJH /NJS /NP | Out-Null
 
-Get-Process LightsaberCursor -ErrorAction SilentlyContinue | Stop-Process -Force
 & $dotnet publish (Join-Path $src 'LightsaberCursor.csproj') -c Release -r $Runtime --self-contained true `
     -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o $out
 if ($LASTEXITCODE -ne 0) { throw "dotnet publish failed ($LASTEXITCODE)" }
@@ -26,6 +25,8 @@ Write-Host "Built $out\LightsaberCursor.exe"
 
 if ($Install) {
     $dest = Join-Path $env:LOCALAPPDATA 'Programs\LightsaberCursor'
+    # Stop the installed copy only now, once the new build is ready, and give the normal pointer back.
+    & (Join-Path $PSScriptRoot 'stop-app.ps1')
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
     Copy-Item (Join-Path $out 'LightsaberCursor.exe') $dest -Force
     $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'Lightsaber Cursor.lnk'

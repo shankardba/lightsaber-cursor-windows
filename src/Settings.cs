@@ -69,6 +69,8 @@ public sealed class AppSettings
         }
         catch
         {
+            // Keep a copy of settings this version can't read rather than overwriting them with defaults.
+            try { File.Copy(FilePath, Path.Combine(Folder, "settings.unreadable.json"), true); } catch { }
             Prefs = new Prefs();
         }
     }

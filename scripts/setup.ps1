@@ -48,13 +48,61 @@ if (-not (Has-Net8)) {
 }
 Note 'Installed: OK'
 
+Step 'Checking for a previous installation'
+$installDir = Join-Path $env:LOCALAPPDATA 'Programs\LightsaberCursor'
+$exePath = Join-Path $installDir 'LightsaberCursor.exe'
+$dataDir = Join-Path $env:APPDATA 'LightsaberCursor'
+$shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'Lightsaber Cursor.lnk'
+$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
+$hasSettings = Test-Path (Join-Path $dataDir 'settings.json')
+$hadLogin = $null -ne (Get-ItemProperty $runKey -Name LightsaberCursor -ErrorAction SilentlyContinue)
+$running = [bool](Get-Process LightsaberCursor -ErrorAction SilentlyContinue)
+$fresh = $false
+if ((Test-Path $installDir) -or (Test-Path $shortcut) -or $hasSettings -or $hadLogin -or $running) {
+    Note 'Found one. It will be removed and replaced with this version.'
+    # LIGHTSABER_SETTINGS=keep|fresh answers the question below without a dialog.
+    $choice = $env:LIGHTSABER_SETTINGS
+    if (-not $choice -and $hasSettings) {
+        $answer = [System.Windows.Forms.MessageBox]::Show(
+            "A previous installation of Lightsaber Cursor was found. It will be removed and replaced with this version.`n`nKeep your saved sabers and settings?`n`n    Yes: keep them`n    No: start fresh",
+            'Lightsaber Cursor setup', 'YesNo', 'Question')
+        $choice = if ($answer -eq 'No') { 'fresh' } else { 'keep' }
+    }
+    $fresh = $choice -eq 'fresh'
+
+    & (Join-Path $PSScriptRoot 'stop-app.ps1')
+    $buildDir = Join-Path $env:LOCALAPPDATA 'LightsaberCursorBuild'
+    Remove-Item $installDir, $shortcut, $buildDir -Recurse -Force -ErrorAction SilentlyContinue
+    if ($fresh) {
+        Remove-Item $dataDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-ItemProperty $runKey -Name LightsaberCursor -ErrorAction SilentlyContinue
+        # Unpin the taskbar icon too, so the app asks again. (The entry itself stays: Windows only
+        # recreates a deleted one much later, and the app needs it to offer the pin.)
+        Get-ChildItem 'HKCU:\Control Panel\NotifyIconSettings' -ErrorAction SilentlyContinue |
+            Where-Object { (Get-ItemProperty $_.PSPath -ErrorAction SilentlyContinue).ExecutablePath -eq $exePath } |
+            ForEach-Object { Set-ItemProperty $_.PSPath -Name IsPromoted -Value 0 -Type DWord }
+        Note 'Settings cleared; the app will ask its first-run questions again.'
+    } else {
+        Note 'Your sabers and settings are kept.'
+    }
+} else {
+    Note 'None found: fresh install.'
+}
+
 Step 'Building and installing the app (a couple of minutes the first time)'
 & (Join-Path $PSScriptRoot 'build.ps1') -Install
+if ($hadLogin -and -not $fresh) {
+    # Keep "start at sign-in" pointing at the freshly installed copy.
+    Set-ItemProperty $runKey -Name LightsaberCursor -Value "`"$exePath`""
+}
+$firstRun = -not (Test-Path (Join-Path $dataDir 'settings.json'))
 
 Step 'Launching Lightsaber Cursor'
-Start-Process (Join-Path $env:LOCALAPPDATA 'Programs\LightsaberCursor\LightsaberCursor.exe')
+Start-Process $exePath
 
 Write-Host "`nDone! Your pointer is now a lightsaber." -ForegroundColor Green
-Note 'The first time the app starts it will ask whether to start at sign-in'
-Note 'and whether to keep its icon always visible on the taskbar.'
+if ($firstRun) {
+    Note 'The first time the app starts it will ask whether to start at sign-in'
+    Note 'and whether to keep its icon always visible on the taskbar.'
+}
 Note 'Toggle the saber any time with Ctrl+Alt+Shift+L. Find it later in the Start menu: Lightsaber Cursor.'

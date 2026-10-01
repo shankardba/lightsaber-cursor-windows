@@ -27,6 +27,10 @@ You need **Windows 11**, on a regular Intel/AMD PC (x64) or an ARM PC. No admini
 
 The first time the app starts, it opens the Customizer and asks two questions: whether to **start at sign-in**, and whether to keep its **tray icon always visible** on the taskbar instead of hidden under the **^** arrow. These questions only appear on the first launch.
 
+### Upgrading
+
+Get the new version the same way (download the ZIP again or `git pull`) and double-click **`Setup.cmd`** again. Setup finds the old installation, stops it, puts the normal pointer back straight away, and removes the old app, its Start menu shortcut and its build files before a clean install. It asks once whether to keep your saved sabers and settings (**Yes**: settings, start-at-sign-in and the taskbar pin stay as they were) or start fresh (**No**: everything is reset and the first-run questions come back).
+
 The manual steps below do the same thing by hand.
 
 ---
